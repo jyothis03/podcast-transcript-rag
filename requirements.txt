@@ -1,2 +1,4 @@
 chromadb
 rank_bm25
+sentence-transformers
+groq

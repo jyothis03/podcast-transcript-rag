@@ -122,5 +122,30 @@ class BM25Store:
                 results.append(result)
 
         return results
+    
+    def save(self)->None:
+        
+        data= {
+            "chunks": self.chunks,
+            "tokenized_corpus": self.tokenized_corpus,
+        }
+        with open(self.persist_path, "wb") as f:
+            pickle.dump(data, f)
+
+    def load(self)-> None:
+        if not os.path.exists(self.persist_path):
+            return
+
+        with open(self.persist_path, "rb") as f:
+            data = pickle.load(f)
+
+        self.chunks = data.get("chunks", [])
+        self.tokenized_corpus = data.get("tokenized_corpus", [])
+
+        if self.tokenized_corpus:
+            self.bm25 = BM25Okapi(self.tokenized_corpus)
+        
 
         
+        
+
