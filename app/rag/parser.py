@@ -1,3 +1,4 @@
+import os
 import re
 from typing import List
 from app.models.schemas import TranscriptSegment
@@ -12,12 +13,25 @@ class TranscriptParser:
     )
 
     # Regex to detect speaker labels like "[Lex]:" or "Lex:" at the start of text
-    SPEAKER_RE = re.compile(r"^\[?([A-Za-z\s]+?)\]?\s*:\s*")
+    SPEAKER_RE = re.compile(r"^\[?([A-Za-z0-9_\s]+?)\]?\s*:\s*")
 
     @staticmethod
     def _timestamp_to_seconds(hours: str, minutes: str, seconds: str, millis: str) -> float:
         """Convert SRT timestamp components to total seconds as a float."""
         return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(millis) / 1000
+
+    def parse_file(self, file_path: str) -> List[TranscriptSegment]:
+        """Read a file from disk and parse it based on its extension (.srt or .txt)."""
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Transcript file not found: {file_path}")
+
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+        if file_path.lower().endswith(".srt"):
+            return self.parse_srt(content)
+        else:
+            return self.parse_txt(content)
 
     def parse_srt(self, content: str) -> List[TranscriptSegment]:
         """
@@ -98,8 +112,15 @@ class TranscriptParser:
             if not line:
                 continue
 
+            # Best-effort speaker detection even for txt files
+            speaker = "Unknown"
+            speaker_match = self.SPEAKER_RE.match(line)
+            if speaker_match:
+                speaker = speaker_match.group(1).strip()
+                line = line[speaker_match.end():].strip()
+
             segments.append(TranscriptSegment(
-                speaker="Unknown",
+                speaker=speaker,
                 start_time=-1.0,
                 end_time=-1.0,
                 text=line

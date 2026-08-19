@@ -1,22 +1,29 @@
+from typing import List, Union
 from app.models.schemas import Chunk, TranscriptSegment, PodcastEpisode
-from typing import List
+
 
 class PodcastChunker:
-    def __init__(self,chunk_size:int=500,chunk_overlap:int=80):
+    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 80):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    def format_segment(self,segment: TranscriptSegment)->str:
-        return f"[{segment.speaker}]: {segment.text}"
+    def format_segment(self, segment: TranscriptSegment) -> str:
+        if segment.speaker and segment.speaker != "Unknown":
+            return f"[{segment.speaker}]: {segment.text}"
+        return segment.text
 
-    def create_chunk(self, buffer:List[TranscriptSegment], 
-        formatted_texts: List[str],episode_id: int,
-        podcast_name:str,chunk_index:int)->Chunk:
-
+    def create_chunk(
+        self,
+        buffer: List[TranscriptSegment],
+        formatted_texts: List[str],
+        episode_id: Union[int, str],
+        podcast_name: str,
+        chunk_index: int,
+    ) -> Chunk:
         seen = set()
         speakers = []
         for seg in buffer:
-            if seg.speaker not in seen:
+            if seg.speaker and seg.speaker not in seen:
                 seen.add(seg.speaker)
                 speakers.append(seg.speaker)
 
@@ -35,12 +42,11 @@ class PodcastChunker:
         buffer: List[TranscriptSegment],
         formatted_texts: List[str],
     ) -> tuple:
-        
         overlap_segments: List[TranscriptSegment] = []
-        overlap_texts: List[str]= []
+        overlap_texts: List[str] = []
         char_count = 0
 
-        for seg,text in zip(reversed(buffer),reversed(formatted_texts)):
+        for seg, text in zip(reversed(buffer), reversed(formatted_texts)):
             char_count += len(text)
             overlap_segments.append(seg)
             overlap_texts.append(text)
@@ -52,12 +58,27 @@ class PodcastChunker:
         overlap_texts.reverse()
         return overlap_segments, overlap_texts
 
+    def chunk_segments(
+        self,
+        segments: List[TranscriptSegment],
+        podcast_name: str = "Unknown Podcast",
+        episode_id: Union[int, str] = 1,
+    ) -> List[Chunk]:
+        """Convenience method to chunk a raw list of segments directly."""
+        episode = PodcastEpisode(
+            title=f"{podcast_name} Ep {episode_id}",
+            episode_id=episode_id,
+            podcast_name=podcast_name,
+            segments=segments,
+        )
+        return self.chunk_episode(episode)
+
     def chunk_episode(self, episode: PodcastEpisode) -> List[Chunk]:
         if not episode.segments:
             return []
 
-        chunks : List[Chunk]= []
-        chunk_index = 0 
+        chunks: List[Chunk] = []
+        chunk_index = 0
 
         buffer: List[TranscriptSegment] = []
         formatted_texts: List[str] = []
@@ -69,11 +90,15 @@ class PodcastChunker:
             new_length = current_length + len(formatted) + (1 if buffer else 0)
 
             if new_length > self.chunk_size and buffer:
-                chunks.append(self.create_chunk(
-                    buffer, formatted_texts,
-                    episode.episode_id, episode.podcast_name,
-                    chunk_index
-                ))
+                chunks.append(
+                    self.create_chunk(
+                        buffer,
+                        formatted_texts,
+                        episode.episode_id,
+                        episode.podcast_name,
+                        chunk_index,
+                    )
+                )
                 chunk_index += 1
 
                 buffer, formatted_texts = self._compute_overlap(buffer, formatted_texts)
@@ -84,8 +109,13 @@ class PodcastChunker:
             current_length += len(formatted) + (1 if len(buffer) > 1 else 0)
 
         if buffer:
-            chunks.append(self._create_chunk(
-                buffer, formatted_texts,
-                episode.episode_id, episode.podcast_name, chunk_index
-            ))
+            chunks.append(
+                self.create_chunk(
+                    buffer,
+                    formatted_texts,
+                    episode.episode_id,
+                    episode.podcast_name,
+                    chunk_index,
+                )
+            )
         return chunks
