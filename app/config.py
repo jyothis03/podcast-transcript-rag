@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
 
+    # Qdrant Database Settings
+    QDRANT_URL: Optional[str] = None
+    QDRANT_API_KEY: Optional[str] = None
+    QDRANT_COLLECTION_NAME: str = "podcast_transcripts"
+
     API_KEY: str = "dev-api-key-12345"
     ENV: str = "development"
 
