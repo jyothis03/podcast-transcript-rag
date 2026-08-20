@@ -1,0 +1,60 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment Variables & Secrets
+.env
+.env.*
+app/.env
+*.env
+
+# Local Storage, Vector DBs & Pickles
+data/
+test_data/
+rag_store/
+*.pkl
+*.pickle
+*.parquet
+*.sqlite3
+chroma.sqlite3
+
+# Breakdown / Tutorial Markdown Notes & Design Docs
+FOR_jo_phase*.md
+FOR_jo_*.md
+architecture.md
+
+# Test & Scratch Scripts
+test_pipeline.py
+
+# IDE, Editor & OS Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
