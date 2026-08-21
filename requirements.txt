@@ -16,3 +16,4 @@ langgraph
 ragas
 datasets
 streamlit
+torchvision

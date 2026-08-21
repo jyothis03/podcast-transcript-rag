@@ -269,19 +269,41 @@ if "total_chunks" not in st.session_state:
 
 @st.cache_resource(show_spinner=False)
 def load_rag_pipeline():
-    """Initializes and caches the RAGEngine and LangGraph workflow."""
-    engine = RAGEngine(persist_dir="./data")
-    graph = PodcastRAGGraph(engine=engine)
+    """Initializes and caches the RAGEngine and LangGraph workflow with visible progress."""
+    progress = st.empty()
+    bar = st.progress(0, text="Initializing vector store and embedding models...")
 
-    # Ingest default transcript if exists
-    default_srt = "data/sample_podcast.srt"
-    if os.path.exists(default_srt):
-        num_chunks = engine.ingest_podcast(
-            file_path=default_srt,
-            podcast_name="Lex Fridman Podcast",
-            episode_id=1,
+    engine = RAGEngine(persist_dir="./data")
+    bar.progress(55, text="Loading Cross-Encoder reranker...")
+
+    graph = PodcastRAGGraph(engine=engine)
+    bar.progress(80, text="Compiling LangGraph state machine...")
+
+    # Skip ingestion if collection already has data (avoids re-embedding on restart)
+    try:
+        collection_info = engine.qdrant_store.client.get_collection(
+            engine.qdrant_store.collection_name
         )
-        st.session_state.total_chunks = num_chunks
+        existing_points = collection_info.points_count or 0
+    except Exception:
+        existing_points = 0
+
+    if existing_points == 0:
+        default_srt = "data/sample_podcast.srt"
+        if os.path.exists(default_srt):
+            bar.progress(90, text="Indexing default transcript into Qdrant...")
+            num_chunks = engine.ingest_podcast(
+                file_path=default_srt,
+                podcast_name="Lex Fridman Podcast",
+                episode_id=1,
+            )
+            st.session_state.total_chunks = num_chunks
+    else:
+        st.session_state.total_chunks = existing_points
+
+    bar.progress(100, text="Ready.")
+    bar.empty()
+    progress.empty()
 
     return engine, graph
 
