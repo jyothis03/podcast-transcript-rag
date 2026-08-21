@@ -1,228 +1,282 @@
-# 🎙️ Podcast Transcript RAG Pipeline
+# Podcast Transcript RAG System
 
-A modular, high-performance Retrieval-Augmented Generation (RAG) backend engineered specifically for timestamped audio transcripts and subtitle files (`.srt`, `.txt`).
+A production-grade, stateful Retrieval-Augmented Generation (RAG) system built for timestamped podcast transcripts and subtitle files (`.srt`). Features hybrid retrieval (dense + BM25), Cross-Encoder neural reranking, LangGraph-driven Corrective RAG (CRAG) self-correction, deterministic zero-token guardrails, multi-provider LLM failover, and automated evaluation.
 
-Built from first principles using a **Two-Stage Coarse-to-Fine Hybrid Retrieval** architecture combining **ChromaDB Dense Vector Search**, **BM25 Sparse Keyword Search**, **Reciprocal Rank Fusion (RRF)**, **Cross-Encoder Neural Reranking**, and **Groq (Llama-3)** generation wrapped in an asynchronous **FastAPI** web server.
+Built with **Python**, **FastAPI**, **LangChain**, **LangGraph**, **Qdrant**, **SentenceTransformers**, and a decoupled **React 19 + Vite** frontend.
 
 ---
 
-## 🏛️ High-Level System Design (HLSD)
+## System Architecture
 
 ```
-                            INGESTION PIPELINE
-                            ──────────────────
-     ┌──────────────────────┐
-     │ Raw Transcript File  │ (SRT with timestamps or plain TXT)
-     └──────────┬───────────┘
-                │
-                ▼
-     ┌──────────────────────┐
-     │   TranscriptParser   │ Extracts timestamps & detects speaker tags (`[Speaker]:`)
-     └──────────┬───────────┘
-                │ List[TranscriptSegment]
-                ▼
-     ┌──────────────────────┐
-     │    PodcastChunker    │ Sliding window chunking (500 chars) with segment overlap
-     └──────────┬───────────┘
-                │ List[Chunk]
-        ┌───────┴───────────────────┐
-        ▼                           ▼
-┌───────────────┐           ┌───────────────┐
-│  ChromaStore  │           │   BM25Store   │
-│ (Dense Index) │           │(Sparse Index) │
-└───────────────┘           └───────────────┘
+                                QUERY FLOW
+                        ─────────────────────────
 
+        User Query
+            │
+            ▼
+   ┌─────────────────────┐
+   │   Input Guardrail   │  Zero-token deterministic regex validation (<1ms)
+   │  (guardrails.py)    │  Blocks prompt injection, jailbreaks, and leaks
+   └────────┬────────────┘
+            │ Safe
+            ▼
+   ┌─────────────────────┐
+   │   LangGraph Router  │  Classifies query: requires fresh transcript search
+   │    (graph.py)       │  vs answers from conversation history (stateful)
+   └────────┬────────────┘
+            │ "search"
+            ▼
+   ┌─────────────────────┐      ┌─────────────────────┐
+   │   Dense Retrieval   │      │   Sparse Retrieval   │
+   │ (Qdrant + MiniLM)   │      │ (Qdrant + FastEmbed)│
+   └────────┬────────────┘      └────────┬─────────────┘
+            │ Top-20                     │ Top-20
+            └────────────┬───────────────┘
+                         ▼
+            ┌────────────────────────┐
+            │  Reciprocal Rank       │  RRF(d) = Sum[ 1/(60+rank) ]
+            │  Fusion (RRF)          │  Merges dense & sparse candidate pools
+            └────────────┬───────────┘
+                         │ Top-20 Fused
+                         ▼
+            ┌────────────────────────┐
+            │  Cross-Encoder         │  ms-marco-MiniLM-L-6-v2
+            │  Neural Reranker       │  Joint query-document cross-attention
+            └────────────┬───────────┘
+                         │ Top-5 Verified
+                         ▼
+            ┌────────────────────────┐
+            │  CRAG Confidence Gate  │  Top rerank score < 0.0?
+            │  (Self-Correction)     │  → Rewrite query via LLM
+            │                        │  → Re-retrieve (bounded loop, max 2)
+            └────────────┬───────────┘
+                         │ Confident
+                         ▼
+            ┌────────────────────────┐
+            │  LLM Generation        │  Primary: Gemini 3.7 Flash
+            │  with Fallback Chain   │  Failover: Groq (openai/gpt-oss-120b)
+            │  + Grounded Prompt     │  Strict timestamp citations, temp=0.0
+            └────────────────────────┘
+```
 
-                              QUERY PIPELINE
-                              ──────────────
-     ┌──────────────────────┐
-     │  User Question Query │
-     └──────────┬───────────┘
-        ┌───────┴───────────────────┐
-        ▼                           ▼
-┌───────────────┐           ┌───────────────┐
-│ Dense Search  │           │ Sparse Search │
-│ (ChromaDB)    │           │ (BM25Okapi)   │
-└───────┬───────┘           └───────┬───────┘
-        │ Top-20                    │ Top-20
-        └─────────────┬─────────────┘
-                      │
-                      ▼
-        ┌───────────────────────────┐
-        │  Reciprocal Rank Fusion   │  RRF Score = 1 / (60 + rank)
-        │  (Unified Candidate Pool) │
-        └─────────────┬─────────────┘
-                      │ Top-20 Fused Candidates
-                      ▼
-        ┌───────────────────────────┐
-        │   Cross-Encoder Reranker  │  `ms-marco-MiniLM-L-6-v2`
-        │   (Deep Attention Score)  │
-        └─────────────┬─────────────┘
-                      │ Top-5 Verified Chunks
-                      ▼
-        ┌───────────────────────────┐
-        │   Groq LLM Generation     │  `llama3-8b-8192` with strict grounding
-        └─────────────┬─────────────┘
-                      │
-                      ▼
-        ┌───────────────────────────┐
-        │ Final Answer + Timestamps │
-        └───────────────────────────┘
+### Ingestion Pipeline
+
+```
+  Raw .srt File → TranscriptParser (regex) → PodcastChunker (segment-aware overlap)
+       → Dense Embeddings (all-MiniLM-L6-v2, 384-dim)
+       → Sparse Embeddings (Qdrant BM25)
+       → Unified Qdrant Collection (dense + sparse vectors + rich metadata payload)
 ```
 
 ---
 
-## 🔬 Low-Level System Design (LLSD) & Modules
+## Core Engineering Decisions
 
-### 1. Ingestion & Parsing (`app/rag/parser.py`)
-- **`TranscriptParser`**: Uses compiled regular expressions to extract start/end seconds and speaker dialogue tags from `.srt` subtitles. TXT files fall back to sentinel timestamp values (`-1.0`).
+**1. Why Hybrid Search (Dense + Sparse) instead of Dense-Only?**
+- Dense embeddings (`all-MiniLM-L6-v2`) capture high-level semantic meaning and paraphrases (e.g., *"techniques for ensuring models align"*), but can miss exact acronyms and proper nouns.
+- Sparse embeddings (BM25) ensure exact term matches (e.g., *"RLHF"*, specific names, quotes) are never dropped.
+- **Reciprocal Rank Fusion (RRF)** merges candidate lists using ordinal rank positions rather than incomparable raw similarity scores:
+  $$\text{RRF}(d) = \sum_{m \in \{\text{Dense}, \text{Sparse}\}} \frac{1}{60 + \text{rank}_m(d)}$$
 
-### 2. Segment-Aware Chunking (`app/rag/chunker.py`)
-- **`PodcastChunker`**: Preserves sentence and dialogue turns by grouping whole `TranscriptSegment`s up to a configurable target (default 500 characters) and maintaining a character-threshold overlap (default 80 characters) by carrying over the trailing segments.
+**2. Why Cross-Encoder Reranking after RRF?**
+- Bi-Encoders compute query and document representations independently for fast vector index lookup.
+- Cross-Encoders (`ms-marco-MiniLM-L-6-v2`) process query-document pairs simultaneously with full cross-attention, capturing complex semantic nuance.
+- *Tradeoff handled:* Cross-Encoders cannot pre-compute vectors, so they are selectively applied only to the top-20 RRF candidate pool, adding only ~150ms of latency while significantly boosting precision.
 
-### 3. Dual Storage Layer (`app/rag/store.py`)
-- **`ChromaStore` (Dense)**: Wraps `chromadb.PersistentClient` using the `all-MiniLM-L6-v2` embedding model (384 dimensions) with cosine distance metrics. Stores metadata (timestamps, episode ID, podcast name, speakers).
-- **`BM25Store` (Sparse)**: Wraps `rank_bm25.BM25Okapi` for exact keyword and acronym matching. Serializes state to disk via `pickle` for persistence across restarts.
+**3. Why Corrective RAG (CRAG) Self-Correction?**
+- When retrieval returns low-confidence context (top rerank score $< 0.0$), the system triggers an autonomous query rewriting node that resolves vague queries (*"Is it enough?"*) into expanded keyword searches.
+- A state-tracked loop counter caps rewrites at 2 cycles to prevent infinite execution loops.
 
-### 4. Two-Stage Hybrid Retrieval & Reranking (`app/rag/retriever.py`)
-- **Stage 1 (Coarse Filter)**: Executes parallel dense and sparse searches, fetching Top-20 candidates from each engine. Merges them via **Reciprocal Rank Fusion (RRF)**:
-  $$\text{RRF Score} = \sum_{m \in \{\text{Dense}, \text{Sparse}\}} \frac{1}{60 + \text{rank}_m}$$
-- **Stage 2 (Fine Filter)**: Passes fused candidate pairs `[Query, Chunk Text]` to the `cross-encoder/ms-marco-MiniLM-L-6-v2` model. The cross-attention mechanism re-scores candidates and extracts the Top-5 most relevant chunks.
+**4. Why Multi-Provider LLM Orchestration with Fallback?**
+- Chained with LangChain's `.with_fallbacks()`: Google Gemini serves as primary, with automatic zero-downtime failover to Groq (`openai/gpt-oss-120b`) if rate limits (HTTP 429) or service outages (5xx) occur.
 
-### 5. Orchestration Engine (`app/rag/engine.py`)
-- **`RAGEngine`**: Acts as a **Facade Pattern** coordinator. Formats retrieved chunks with timestamp labels (`[at 14.5s]`), constructs the grounded system prompt, and calls the Groq LPU API (`llama3-8b-8192`) at `temperature=0.0`.
-
-### 6. Transport & API Layer (`app/main.py`)
-- **FastAPI Web Server**:
-  - Uses `lifespan` context management to initialize models and connections once during startup into `app.state`.
-  - Uses a `ThreadPoolExecutor` to offload CPU-intensive parsing and embedding math without blocking the asynchronous `asyncio` event loop.
-  - Exposes interactive OpenAPI documentation at `/docs` and CORS middleware for frontend integrations.
+**5. Why Zero-Token Deterministic Guardrails?**
+- Rather than burning LLM tokens and adding 1-2s of round-trip latency to classify inputs, pre-execution regex guardrails catch prompt injections, system prompt leak attempts, and jailbreak signatures in `< 1ms` at zero cost.
 
 ---
 
-## 📂 Project Directory Structure
+## Evaluation Benchmark & Diagnostic Results
+
+The system was evaluated against an automated **32-question golden dataset** covering 12 distinct query categories. Full report available in [`eval/EVAL_REPORT.md`](eval/EVAL_REPORT.md).
+
+### Summary KPI Metrics
+
+| Metric | Result | Target | Notes |
+| :--- | :---: | :---: | :--- |
+| **Mean Faithfulness (Grounding)** | **0.928** | $\ge 0.85$ | Evaluated via LLM-as-a-judge; measures context adherence |
+| **Out-of-Scope Refusal Rate** | **87.5%** (7/8) | $\ge 80\%$ | System correctly says *"I don't have enough information"* when answers are absent |
+| **Guardrail Interception Rate** | **100%** | $100\%$ | Blocked prompt injections and jailbreak vectors deterministically |
+| **Mean End-to-End Latency** | **4.84s** | $< 6.0\text{s}$ | Includes CRAG query rewrite loops for ambiguous queries |
+
+### Honest Diagnostic Findings (Where the System Breaks)
+
+* **Speaker Intent Inference Limitation (`speaker_identification`: 0.50 faithfulness, $n=2$):**
+  On query #30 (*"Did Lex express skepticism about RLHF solving alignment?"*), the system answered *"No, Lex neutrally asked if it was enough without voicing personal skepticism."* The ground-truth label interpreted questioning as skepticism. The system's strict literal grounding prevented subjective over-interpretation. This highlights a fundamental RAG trade-off: literal grounding guarantees factual safety but limits interpretive inference.
+* **Answer Relevancy Metric Artifact (1.0000 across all 32 items):**
+  Investigation revealed that standard relevancy judge prompts test topical on-topic alignment rather than factual precision. Both a grounded answer and a correct refusal are deemed "on-topic." In our evaluation report, this metric is transparently documented as non-discriminating rather than cited as false evidence of perfection.
+
+---
+
+## Project Structure
 
 ```
 podcast_rag/
-├── README.md                 # System Architecture & Documentation
-├── requirements.txt          # Production dependencies
-├── .env                      # Environment variables & API keys
-├── .gitignore                # Git filtering rules
-├── data/
-│   └── sample_podcast.srt    # Sample transcript for testing
 ├── app/
-│   ├── __init__.py
-│   ├── main.py               # FastAPI application & endpoints
-│   ├── config.py             # Pydantic Settings & environment validation
-│   ├── dependencies.py       # FastAPI dependency injection
+│   ├── main.py                 # FastAPI REST API, lifespan pre-warming, CORS, ThreadPoolExecutor
+│   ├── config.py               # Pydantic BaseSettings with environment validation
 │   ├── models/
-│   │   ├── __init__.py
-│   │   └── schemas.py        # Pydantic schemas (IngestRequest, QueryRequest, Chunk, etc.)
+│   │   └── schemas.py          # Pydantic schemas (QueryRequest, IngestRequest, Chunk, etc.)
 │   └── rag/
-│       ├── __init__.py
-│       ├── parser.py         # SRT / TXT regex parsing
-│       ├── chunker.py        # Segment-aware overlapping chunker
-│       ├── store.py          # ChromaDB & BM25Okapi dual-store
-│       ├── retriever.py      # Hybrid RRF + Cross-Encoder reranker
-│       └── engine.py         # RAGEngine facade & Groq LLM integration
+│       ├── parser.py           # SRT/TXT regex parser with timestamp & speaker extraction
+│       ├── chunker.py          # Segment-aware sliding window chunker (500 char, 80 char overlap)
+│       ├── store.py            # Unified Qdrant hybrid vector store (dense + sparse BM25)
+│       ├── retriever.py        # Hybrid RRF fusion + Cross-Encoder reranker
+│       ├── engine.py           # RAGEngine facade: LangChain Gemini→Groq fallback orchestration
+│       ├── graph.py            # LangGraph stateful CRAG workflow (router, retrieve, rewrite, generate)
+│       └── guardrails.py       # Zero-token deterministic prompt injection & jailbreak guardrail
+├── eval/
+│   ├── dataset.json            # 32-item golden dataset (12 query categories)
+│   ├── evaluate.py             # Automated LLM-as-a-judge evaluation harness
+│   ├── eval_results.csv        # Detailed per-query scores and telemetry
+│   └── EVAL_REPORT.md          # Diagnostic evaluation report
+├── frontend/                   # Decoupled React 19 + Vite SPA (instant <100ms load)
+│   ├── src/
+│   │   ├── App.jsx             # Conversational UI, SRT drag-and-drop, telemetry badges
+│   │   ├── index.css           # Dark emerald glassmorphism design system (no emojis)
+│   │   └── main.jsx
+│   ├── package.json
+│   └── vite.config.js
+├── tests/
+│   ├── test_guardrails.py      # Adversarial injection & jailbreak unit tests
+│   ├── test_langgraph.py       # Multi-turn conversation & routing tests
+│   ├── test_pipeline.py        # End-to-end ingestion & retrieval tests
+│   └── test_qdrant.py          # Vector store hybrid search tests
+├── data/
+│   └── sample_podcast.srt      # Sample transcript for testing and demo
+└── requirements.txt
 ```
 
 ---
 
-## ⚡ Quickstart Guide
+## Tech Stack & Competencies
 
-### 1. Prerequisites & Environment Setup
+| Layer | Technology | Engineering Role |
+| :--- | :--- | :--- |
+| **Backend API** | FastAPI + Uvicorn | Async web service with lifespan model loading and `ThreadPoolExecutor` for CPU-bound PyTorch math |
+| **Agent / Orchestration** | LangGraph + LangChain | Stateful multi-turn CRAG workflow with `MemorySaver` checkpointer and router |
+| **Vector Database** | Qdrant | Hybrid search (dense cosine + sparse BM25) in a single collection with payload filtering |
+| **Embeddings** | SentenceTransformers (`all-MiniLM-L6-v2`) | 384-dimensional dense semantic vectors (CPU-optimized) |
+| **Sparse Index** | FastEmbed (`Qdrant/bm25`) | Exact keyword and acronym matching |
+| **Neural Reranker** | Cross-Encoder (`ms-marco-MiniLM-L-6-v2`) | Full cross-attention query-chunk verification |
+| **Primary LLM** | Google Gemini 3.7 Flash | Temperature=0.0 grounded generation with timestamp citations |
+| **Fallback LLM** | Groq (`openai/gpt-oss-120b`) | Zero-downtime automatic failover via LangChain |
+| **Input Guardrails** | Custom Regex Engine | Sub-millisecond deterministic prompt injection interceptor |
+| **Frontend** | React 19 + Vite | Decoupled client with instant initial load, dark emerald glassmorphism, and Lucide vector icons |
+| **Validation** | Pydantic v2 | Strict data contracts across all layers |
 
-Clone the repository and activate your virtual environment:
+---
 
-```powershell
-# Windows (PowerShell)
-python -m venv venv
-.\venv\Scripts\Activate.ps1
+## Quickstart
 
-# Linux / macOS
-python3 -m venv venv
-source venv/bin/activate
-```
+### Prerequisites
 
-Install all dependencies:
+- Python 3.11+
+- Node.js 18+ (for frontend)
+- API key for Gemini and/or Groq
+
+### 1. Environment Setup
 
 ```bash
+# Clone repository
+git clone https://github.com/your-username/podcast-transcript-rag.git
+cd podcast-transcript-rag
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate       # Linux/macOS
+.\venv\Scripts\Activate.ps1    # Windows PowerShell
+
+# Install Python dependencies
 pip install -r requirements.txt
 ```
 
 ### 2. Configure Environment Variables
 
-Create or edit your `.env` file in the project root:
+Create `.env` in the root directory:
 
 ```env
-GROQ_API_KEY=gsk_your_groq_api_key_here
-API_KEY=dev-api-key-12345
-ENV=development
+GEMINI_API_KEY=your_gemini_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
 RAG_PERSIST_DIR=./data
 ```
 
----
+### 3. Start the FastAPI Backend
 
-## 🚀 Running the Application
-
-Start the FastAPI server:
-
-```powershell
-.\venv\Scripts\uvicorn.exe app.main:app --reload
+```bash
+uvicorn app.main:app --port 8000
 ```
 
-Once running, access the services:
-- **Interactive Swagger API Documentation**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- **Alternative Redoc API Documentation**: [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
-- **Health Check Endpoint**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- **Interactive API Docs (Swagger):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- **Health / Status Endpoint:** [http://127.0.0.1:8000/status](http://127.0.0.1:8000/status)
+
+### 4. Start the React Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+- **Interactive Web Application:** [http://localhost:3000](http://localhost:3000)
 
 ---
 
-## 🔌 API Endpoints & Usage
+## API Endpoints
 
-### 1. Ingest a Transcript (`POST /ingest`)
-Parses, chunks, embeds, and indexes a podcast file into both vector and keyword storage.
-
-**Request Body (`application/json`):**
+### `POST /chat` — Conversational Query
 ```json
 {
-  "file_path": "data/sample_podcast.srt",
-  "podcast_name": "Lex Fridman Podcast",
-  "episode_id": 1
+  "query": "What does Sam say about RLHF and automated alignment?",
+  "thread_id": "session_123",
+  "podcast_name": "Lex Fridman Podcast"
 }
 ```
-
 **Response (`200 OK`):**
 ```json
 {
-  "status": "success",
-  "message": "Successfully ingested 3 chunks from 'Lex Fridman Podcast'",
-  "chunks_ingested": 3,
-  "podcast_name": "Lex Fridman Podcast",
-  "episode_id": 1
+  "query": "What does Sam say about RLHF and automated alignment?",
+  "answer": "Sam says that RLHF is a valuable first step toward solving AI alignment, but it isn't a silver bullet. He emphasizes that scalable, automated alignment techniques will be necessary as models become superintelligent [at 16.0s].",
+  "thread_id": "session_123"
 }
+```
+
+### `POST /upload` — Multipart File Ingestion
+Uploads a subtitle (`.srt`) file, automatically parses timestamps and speakers, chunks the transcript with segment overlap, computes embeddings, and indexes chunks into Qdrant.
+
+### `GET /status` — System Status
+Returns indexed chunk count, active primary/failover models, and database readiness.
+
+---
+
+## Running Automated Tests & Evaluation
+
+```bash
+# Run unit & integration test suite
+python -m pytest tests/ -v
+
+# Run 32-case evaluation harness
+python eval/evaluate.py
 ```
 
 ---
 
-### 2. Ask a Question (`POST /chat`)
-Executes hybrid retrieval, cross-encoder reranking, and generates an answer with timestamps.
+## Design Trade-Offs
 
-**Request Body (`application/json`):**
-```json
-{
-  "query": "What did Sam say about RLHF and automated alignment?",
-  "podcast_name": "Lex Fridman Podcast",
-  "top_k": 20,
-  "top_n": 5
-}
-```
-
-**Response (`200 OK`):**
-```json
-{
-  "query": "What did Sam say about RLHF and automated alignment?",
-  "answer": "According to the transcript, Sam stated that RLHF (reinforcement learning from human feedback) is a great first step, but it is not a silver bullet. He emphasized that scalable automated alignment techniques will be necessary as models become superintelligent [at 26.5s]."
-}
-```
+| Decision | Trade-Off | Rationale |
+| :--- | :--- | :--- |
+| **Segment-Aware Chunking over Fixed Token Splits** | Chunks vary slightly in size (480–520 chars) | Preserves semantic coherence and dialogue boundaries; mid-sentence cuts directly trigger RAG hallucinations |
+| **Cross-Encoder Reranker on Top-20 Only** | Adds ~150ms query latency | Full-corpus cross-attention is computationally intractable; reranking top-20 candidates delivers precision at low cost |
+| **Zero-Token Guardrails over LLM Evaluator** | Cannot detect novel zero-day prompt patterns | Sub-millisecond execution with 0 API cost; stops obvious injections before hitting costly LLM endpoints |
+| **Decoupled React Client over Monolithic Streamlit** | Requires two running services in development | Eliminates multi-second Python re-import freezes; delivers sub-100ms instant browser page rendering |
+| **Local Disk Qdrant over Cloud Hosted Instance** | Single-process file lock during local writes | Zero external cloud billing during local development; drop-in URL swap for hosted cluster in production |
