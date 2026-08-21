@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     LLM_PROVIDER: str = "gemini"
     GEMINI_MODEL_NAME: str = "gemini-3.7-flash"
-    GROQ_MODEL_NAME: str = "llama3-8b-8192"
+    GROQ_MODEL_NAME: str = "openai/gpt-oss-120b"
     GEMINI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
 

@@ -7,6 +7,12 @@ from typing import List, Dict, Any
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+# Ensure Windows terminal doesn't crash on Unicode characters from LLMs
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import pandas as pd
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -115,9 +121,19 @@ def run_benchmark():
         retrieved_context = "\n".join([c.get("text", "") for c in retrieved_chunks])
         top_rerank = retrieved_chunks[0].get("rerank_score", -99.0) if retrieved_chunks else -99.0
 
-        # Generate answer through LangGraph
-        generated_answer = graph.chat(query=q, thread_id=f"eval_case_{i+1}")
+        # Generate answer through LangGraph with retry handling
+        try:
+            generated_answer = graph.chat(query=q, thread_id=f"eval_case_{i+1}")
+        except Exception as e:
+            print(f"  [Retry on LLM Spike]: {e}")
+            time.sleep(2.0)
+            try:
+                generated_answer = graph.chat(query=q, thread_id=f"eval_case_{i+1}")
+            except Exception as e2:
+                generated_answer = f"Error generating answer: {str(e2)}"
+
         latency = round(time.time() - t0, 3)
+        time.sleep(0.5)  # Rate-limit buffer for free-tier endpoints
 
         # Evaluate Grounding & Relevancy
         grounding_score = evaluate_response_grounding(
