@@ -9,3 +9,6 @@ sentence-transformers
 groq
 qdrant-client
 fastembed
+langchain-core
+langchain-google-genai
+langchain-groq

@@ -14,7 +14,9 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
     RERANKER_MODEL_NAME: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
-    LLM_PROVIDER: str = "groq"
+    LLM_PROVIDER: str = "gemini"
+    GEMINI_MODEL_NAME: str = "gemini-3.7-flash"
+    GROQ_MODEL_NAME: str = "llama3-8b-8192"
     GEMINI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
 

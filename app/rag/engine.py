@@ -1,6 +1,9 @@
 import os
 from typing import Optional, Any, Dict, Union, List
-from groq import Groq
+
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 
 from app.config import get_settings
 from app.rag.parser import TranscriptParser
@@ -15,17 +18,13 @@ class RAGEngine:
         self.settings = get_settings()
         self.persist_dir = persist_dir
 
-        # Initialize Groq client with settings or env fallback
-        api_key = os.getenv("GROQ_API_KEY") or self.settings.GROQ_API_KEY
-        self.llm_client = Groq(api_key=api_key) if api_key else None
-
         self.parser = TranscriptParser()
         self.chunker = PodcastChunker(
             chunk_size=self.settings.RAG_CHUNK_SIZE,
             chunk_overlap=self.settings.RAG_CHUNK_OVERLAP,
         )
 
-        # Initialize unified Qdrant Storage (Cloud or local fallback)
+        # 1. Initialize unified Qdrant Storage
         self.qdrant_store = QdrantStore(
             url=self.settings.QDRANT_URL,
             api_key=self.settings.QDRANT_API_KEY,
@@ -38,6 +37,44 @@ class RAGEngine:
             qdrant_store=self.qdrant_store,
             reranker_model_name=self.settings.RERANKER_MODEL_NAME,
         )
+
+        # 2. Setup Multi-Provider LangChain LLM with automatic failover
+        self._setup_llm()
+
+    def _setup_llm(self) -> None:
+        gemini_key = os.getenv("GEMINI_API_KEY") or self.settings.GEMINI_API_KEY
+        groq_key = os.getenv("GROQ_API_KEY") or self.settings.GROQ_API_KEY
+
+        fallbacks = []
+
+        # Groq Backup LLM
+        groq_llm = None
+        if groq_key:
+            groq_llm = ChatGroq(
+                model=self.settings.GROQ_MODEL_NAME,
+                groq_api_key=groq_key,
+                temperature=0.0,
+            )
+            fallbacks.append(groq_llm)
+
+        # Gemini Primary LLM
+        if gemini_key:
+            gemini_llm = ChatGoogleGenerativeAI(
+                model=self.settings.GEMINI_MODEL_NAME,
+                google_api_key=gemini_key,
+                max_retries=2,
+                temperature=0.0,
+            )
+            # If Groq is available, chain it as an automatic fallback!
+            if fallbacks:
+                self.llm = gemini_llm.with_fallbacks(fallbacks)
+            else:
+                self.llm = gemini_llm
+        elif groq_llm:
+            # If only Groq key is present, use Groq directly
+            self.llm = groq_llm
+        else:
+            self.llm = None
 
     def ingest_podcast(
         self,
@@ -58,9 +95,7 @@ class RAGEngine:
             print(f"No chunks extracted from {file_path}")
             return 0
 
-        # Upload dense + sparse vectors & payload in a single call
         self.qdrant_store.add_chunks(chunks)
-
         print(
             f"Successfully ingested {len(chunks)} chunks from '{podcast_name}' (Ep: {episode_id}) into Qdrant."
         )
@@ -107,25 +142,21 @@ PODCAST TRANSCRIPTS:
 {context_string}
 """
 
-        if not self.llm_client:
-            api_key = os.getenv("GROQ_API_KEY")
-            if api_key:
-                self.llm_client = Groq(api_key=api_key)
-            else:
-                return (
-                    "Error: GROQ_API_KEY environment variable is not set. "
-                    "Please set your GROQ_API_KEY in your .env file or environment."
-                )
+        # Re-check LLM setup dynamically if env keys were updated
+        if not self.llm:
+            self._setup_llm()
+
+        if not self.llm:
+            return (
+                "Error: No LLM API key configured. Please set GEMINI_API_KEY or GROQ_API_KEY in your .env file."
+            )
 
         try:
-            response = self.llm_client.chat.completions.create(
-                model="llama3-8b-8192",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": query},
-                ],
-                temperature=0.0,
-            )
-            return response.choices[0].message.content
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=query),
+            ]
+            response = self.llm.invoke(messages)
+            return response.content
         except Exception as e:
-            return f"Error communicating with Groq LLM: {str(e)}"
+            return f"Error communicating with LLM: {str(e)}"

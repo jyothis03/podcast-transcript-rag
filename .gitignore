@@ -42,13 +42,12 @@ rag_store/
 *.sqlite3
 chroma.sqlite3
 
-# Breakdown / Tutorial Markdown Notes & Design Docs
-FOR_jo_phase*.md
-FOR_jo_*.md
-architecture.md
+# Markdown Files (Ignore all .md files except README.md)
+*.md
+!README.md
 
 # Test & Scratch Scripts
-test_pipeline.py
+test_*.py
 
 # IDE, Editor & OS Files
 .vscode/
