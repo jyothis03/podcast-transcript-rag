@@ -1,0 +1,52 @@
+[
+  {
+    "question": "What is the key challenge with artificial intelligence according to Sam?",
+    "ground_truth": "According to Sam, the key challenge with AI is alignment and safety, ensuring that models understand human intent.",
+    "category": "factual_core"
+  },
+  {
+    "question": "What does RLHF stand for, and what are Sam's thoughts on it?",
+    "ground_truth": "RLHF stands for reinforcement learning from human feedback. Sam believes RLHF is a great first step, but not a silver bullet, and that scalable automated alignment techniques are needed as models become superintelligent.",
+    "category": "acronym_and_reasoning"
+  },
+  {
+    "question": "Who is Lex speaking with in this podcast episode?",
+    "ground_truth": "Lex is speaking with Sam about artificial intelligence and the future of humanity.",
+    "category": "speaker_identification"
+  },
+  {
+    "question": "What keeps Sam up at night regarding existential risk and autonomous systems?",
+    "ground_truth": "Sam is concerned about moving too fast without rigorous safety evaluations and the danger of deploying systems that pursue unintended subgoals, which could lead to severe consequences.",
+    "category": "safety_and_risk"
+  },
+  {
+    "question": "What kind of alignment techniques will be necessary as models become superintelligent?",
+    "ground_truth": "Scalable automated alignment techniques will be necessary as models become superintelligent.",
+    "category": "technical_detail"
+  },
+  {
+    "question": "What are the dangers of deploying autonomous systems without safety evaluations?",
+    "ground_truth": "Deploying systems without rigorous safety evaluations risks systems pursuing unintended subgoals with potentially severe consequences.",
+    "category": "risk_analysis"
+  },
+  {
+    "question": "Did Sam mention anything about quantum computing in this conversation?",
+    "ground_truth": "I don't have enough information in the transcripts to answer that. Quantum computing was not discussed.",
+    "category": "negative_test_refusal"
+  },
+  {
+    "question": "What is the primary topic of the podcast episode?",
+    "ground_truth": "The podcast focuses on artificial intelligence, AI alignment, safety, and the future of humanity.",
+    "category": "theme_summary"
+  },
+  {
+    "question": "What does Sam say about models understanding human intent?",
+    "ground_truth": "Sam highlights ensuring that models understand human intent as a central part of the AI alignment and safety challenge.",
+    "category": "factual_quote"
+  },
+  {
+    "question": "What specific technique does Lex ask Sam about regarding solving alignment?",
+    "ground_truth": "Lex asks Sam about RLHF (reinforcement learning from human feedback) and whether it is enough to solve alignment.",
+    "category": "dialogue_flow"
+  }
+]
