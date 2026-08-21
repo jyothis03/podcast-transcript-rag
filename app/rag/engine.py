@@ -5,7 +5,7 @@ from groq import Groq
 from app.config import get_settings
 from app.rag.parser import TranscriptParser
 from app.rag.chunker import PodcastChunker
-from app.rag.store import ChromaStore, BM25Store
+from app.rag.store import QdrantStore
 from app.rag.retriever import HybridRetriever
 from app.models.schemas import Chunk
 
@@ -25,20 +25,17 @@ class RAGEngine:
             chunk_overlap=self.settings.RAG_CHUNK_OVERLAP,
         )
 
-        self.chroma_store = ChromaStore(
-            persist_dir=persist_dir,
-            model_name=self.settings.EMBEDDING_MODEL_NAME,
+        # Initialize unified Qdrant Storage (Cloud or local fallback)
+        self.qdrant_store = QdrantStore(
+            url=self.settings.QDRANT_URL,
+            api_key=self.settings.QDRANT_API_KEY,
+            path=os.path.join(persist_dir, "qdrant_db"),
+            collection_name=self.settings.QDRANT_COLLECTION_NAME,
+            dense_model_name=self.settings.EMBEDDING_MODEL_NAME,
         )
-        self.bm25_store = BM25Store(
-            persist_path=os.path.join(persist_dir, "bm25.pkl")
-        )
-
-        # Load BM25 from disk if present
-        self.bm25_store.load()
 
         self.retriever = HybridRetriever(
-            chroma_store=self.chroma_store,
-            bm25_store=self.bm25_store,
+            qdrant_store=self.qdrant_store,
             reranker_model_name=self.settings.RERANKER_MODEL_NAME,
         )
 
@@ -48,7 +45,7 @@ class RAGEngine:
         podcast_name: str = "Unknown Podcast",
         episode_id: Union[int, str] = 1,
     ) -> int:
-        print(f"Ingesting {file_path}...")
+        print(f"Ingesting {file_path} into Qdrant...")
 
         segments = self.parser.parse_file(file_path)
         chunks: List[Chunk] = self.chunker.chunk_segments(
@@ -61,11 +58,12 @@ class RAGEngine:
             print(f"No chunks extracted from {file_path}")
             return 0
 
-        self.chroma_store.add_chunks(chunks)
-        self.bm25_store.add_chunks(chunks)
-        self.bm25_store.save()
+        # Upload dense + sparse vectors & payload in a single call
+        self.qdrant_store.add_chunks(chunks)
 
-        print(f"Successfully ingested {len(chunks)} chunks from {podcast_name} (Episode {episode_id}).")
+        print(
+            f"Successfully ingested {len(chunks)} chunks from '{podcast_name}' (Ep: {episode_id}) into Qdrant."
+        )
         return len(chunks)
 
     def ask_question(
@@ -110,7 +108,6 @@ PODCAST TRANSCRIPTS:
 """
 
         if not self.llm_client:
-            # If no API key is configured yet, dynamically check env again
             api_key = os.getenv("GROQ_API_KEY")
             if api_key:
                 self.llm_client = Groq(api_key=api_key)

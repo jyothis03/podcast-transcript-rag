@@ -1,17 +1,15 @@
 from typing import Optional, List, Dict, Any
 from sentence_transformers import CrossEncoder
-from app.rag.store import ChromaStore, BM25Store
+from app.rag.store import QdrantStore
 
 
 class HybridRetriever:
     def __init__(
         self,
-        chroma_store: ChromaStore,
-        bm25_store: BM25Store,
+        qdrant_store: QdrantStore,
         reranker_model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     ):
-        self.chroma_store = chroma_store
-        self.bm25_store = bm25_store
+        self.qdrant_store = qdrant_store
         self.reranker = CrossEncoder(reranker_model_name)
 
     def reciprocal_rank_fusion(
@@ -83,22 +81,26 @@ class HybridRetriever:
         top_n: int = 5,
         where_filter: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        dense_results = self.chroma_store.search(
+        # 1. Fetch Dense Vector candidates from Qdrant
+        dense_results = self.qdrant_store.dense_search(
             query=query,
             top_k=top_k,
             where_filter=where_filter,
         )
 
-        sparse_results = self.bm25_store.search(
+        # 2. Fetch Sparse Keyword candidates from Qdrant
+        sparse_results = self.qdrant_store.sparse_search(
             query=query,
             top_k=top_k,
         )
 
+        # 3. Fuse dense and sparse candidates using RRF
         candidates = self.reciprocal_rank_fusion(
             dense_results,
             sparse_results,
         )
 
+        # 4. Neural rerank using Cross-Encoder
         final_chunks = self._rerank(
             query=query,
             candidates=candidates,
