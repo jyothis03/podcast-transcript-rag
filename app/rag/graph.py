@@ -5,6 +5,7 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.rag.engine import RAGEngine
+from app.rag.guardrails import InputGuardrail
 
 
 class ConversationState(TypedDict):
@@ -15,6 +16,8 @@ class ConversationState(TypedDict):
     - rerank_score: Top Cross-Encoder score for zero-token retrieval grading.
     - retry_count: Safeguard counter to prevent infinite self-correction loops.
     - current_query: The active search query (original or rewritten).
+    - is_safe: Boolean flag indicating if input passed guardrails.
+    - refusal_reason: Message explanation if blocked by guardrails.
     """
     messages: Annotated[Sequence[BaseMessage], add_messages]
     context: str
@@ -23,11 +26,14 @@ class ConversationState(TypedDict):
     rerank_score: float
     retry_count: int
     current_query: str
+    is_safe: bool
+    refusal_reason: Optional[str]
 
 
 class PodcastRAGGraph:
     def __init__(self, engine: RAGEngine):
         self.engine = engine
+        self.guardrail = InputGuardrail()
         self.checkpointer = MemorySaver()
         self.app = self._build_graph()
 
@@ -35,13 +41,28 @@ class PodcastRAGGraph:
         workflow = StateGraph(ConversationState)
 
         # 1. Define Nodes
+        workflow.add_node("guardrail", self._guardrail_node)
+        workflow.add_node("refuse_unsafe", self._refuse_unsafe_node)
         workflow.add_node("router", self._router_node)
         workflow.add_node("retrieve", self._retrieve_node)
         workflow.add_node("rewrite_query", self._rewrite_query_node)
         workflow.add_node("generate", self._generate_node)
 
         # 2. Define Edges & Flow
-        workflow.add_edge(START, "router")
+        workflow.add_edge(START, "guardrail")
+
+        # Edge from guardrail -> Check safety before routing or retrieval
+        workflow.add_conditional_edges(
+            "guardrail",
+            self._guardrail_decision,
+            {
+                "safe": "router",
+                "unsafe": "refuse_unsafe",
+            },
+        )
+
+        # Edge from refuse_unsafe -> Terminate immediately
+        workflow.add_edge("refuse_unsafe", END)
 
         # Edge from router -> Search vs Memory
         workflow.add_conditional_edges(
@@ -71,6 +92,36 @@ class PodcastRAGGraph:
 
         # 3. Compile with in-memory checkpointer for session tracking
         return workflow.compile(checkpointer=self.checkpointer)
+
+    def _guardrail_node(self, state: ConversationState) -> Dict[str, Any]:
+        """
+        Validates user input against prompt injection and jailbreak attacks (< 1ms, 0 tokens).
+        """
+        messages = state.get("messages", [])
+        query = state.get("current_query") or (messages[-1].content if messages else "")
+
+        is_safe, refusal_reason = self.guardrail.validate(query)
+        if not is_safe:
+            print(f"[Guardrail Intercepted]: {refusal_reason}")
+
+        return {
+            "is_safe": is_safe,
+            "refusal_reason": refusal_reason,
+            "current_query": query,
+        }
+
+    def _guardrail_decision(self, state: ConversationState) -> str:
+        return "safe" if state.get("is_safe", True) else "unsafe"
+
+    def _refuse_unsafe_node(self, state: ConversationState) -> Dict[str, Any]:
+        """
+        Returns a deterministic safety refusal message without invoking the LLM.
+        """
+        refusal_msg = state.get(
+            "refusal_reason",
+            "Security Alert: Your request was flagged as a potential policy violation or injection attempt.",
+        )
+        return {"messages": [AIMessage(content=refusal_msg)]}
 
     def _router_node(self, state: ConversationState) -> Dict[str, Any]:
         """
@@ -220,7 +271,15 @@ Return ONLY the rewritten search string, nothing else.
         full_prompt = [SystemMessage(content=system_instruction)] + list(messages)
 
         response = self.engine.llm.invoke(full_prompt)
-        return {"messages": [AIMessage(content=response.content)]}
+        text_content = response.content
+        if isinstance(text_content, list):
+            text_content = "".join(
+                p.get("text", "") if isinstance(p, dict) else str(p) for p in text_content
+            )
+        elif not isinstance(text_content, str):
+            text_content = str(text_content)
+
+        return {"messages": [AIMessage(content=text_content)]}
 
     def chat(
         self,
@@ -237,7 +296,14 @@ Return ONLY the rewritten search string, nothing else.
             "podcast_name": podcast_name,
             "current_query": query,
             "retry_count": 0,
+            "is_safe": True,
+            "refusal_reason": None,
         }
 
         final_state = self.app.invoke(inputs, config=config)
-        return final_state["messages"][-1].content
+        last_message = final_state["messages"][-1].content
+        if isinstance(last_message, list):
+            last_message = "".join(
+                p.get("text", "") if isinstance(p, dict) else str(p) for p in last_message
+            )
+        return str(last_message)

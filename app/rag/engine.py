@@ -10,6 +10,7 @@ from app.rag.parser import TranscriptParser
 from app.rag.chunker import PodcastChunker
 from app.rag.store import QdrantStore
 from app.rag.retriever import HybridRetriever
+from app.rag.guardrails import InputGuardrail
 from app.models.schemas import Chunk
 
 
@@ -19,6 +20,7 @@ class RAGEngine:
         self.persist_dir = persist_dir
 
         self.parser = TranscriptParser()
+        self.guardrail = InputGuardrail()
         self.chunker = PodcastChunker(
             chunk_size=self.settings.RAG_CHUNK_SIZE,
             chunk_overlap=self.settings.RAG_CHUNK_OVERLAP,
@@ -108,6 +110,11 @@ class RAGEngine:
         top_k: Optional[int] = None,
         top_n: Optional[int] = None,
     ) -> str:
+        # Pre-retrieval Input Guardrail check
+        is_safe, refusal_reason = self.guardrail.validate(query)
+        if not is_safe:
+            return refusal_reason or "Security Alert: Prompt injection pattern detected."
+
         k = top_k or self.settings.RAG_TOP_K
         n = top_n or self.settings.RAG_TOP_N
 
@@ -157,6 +164,11 @@ PODCAST TRANSCRIPTS:
                 HumanMessage(content=query),
             ]
             response = self.llm.invoke(messages)
-            return response.content
+            content = response.content
+            if isinstance(content, list):
+                content = "".join(
+                    p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+                )
+            return str(content)
         except Exception as e:
             return f"Error communicating with LLM: {str(e)}"

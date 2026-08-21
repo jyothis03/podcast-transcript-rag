@@ -31,8 +31,8 @@
   },
   {
     "question": "Did Sam mention anything about quantum computing in this conversation?",
-    "ground_truth": "I don't have enough information in the transcripts to answer that. Quantum computing was not discussed.",
-    "category": "negative_test_refusal"
+    "ground_truth": "I don't have enough information in the transcripts to answer that. Quantum computing was not discussed in the podcast.",
+    "category": "no_answer"
   },
   {
     "question": "What is the primary topic of the podcast episode?",
@@ -48,5 +48,115 @@
     "question": "What specific technique does Lex ask Sam about regarding solving alignment?",
     "ground_truth": "Lex asks Sam about RLHF (reinforcement learning from human feedback) and whether it is enough to solve alignment.",
     "category": "dialogue_flow"
+  },
+  {
+    "question": "How does Sam connect the limitations of RLHF to the need for automated alignment and risk prevention across the discussion?",
+    "ground_truth": "Sam explains that while RLHF is a great first step, it is not a silver bullet. As models approach superintelligence, scalable automated alignment and rigorous safety evaluations are needed to prevent systems from pursuing unintended subgoals.",
+    "category": "multi_chunk"
+  },
+  {
+    "question": "Synthesize Lex's questions throughout the episode: what two main areas does Lex probe Sam on?",
+    "ground_truth": "Lex probes Sam on: 1) whether RLHF is enough to solve AI alignment, and 2) what keeps Sam up at night regarding existential risk and autonomous systems.",
+    "category": "multi_chunk"
+  },
+  {
+    "question": "Summarize the complete progression of Sam's viewpoint from the opening greeting to his final warning on unintended subgoals.",
+    "ground_truth": "Sam starts by identifying alignment and safety (understanding human intent) as the key challenge, elaborates that RLHF alone won't suffice for superintelligence requiring scalable automated alignment, and concludes by warning against rushing deployments without rigorous evaluations due to the severe risks of unintended subgoals.",
+    "category": "multi_chunk"
+  },
+  {
+    "question": "What does the podcast say about GPU cluster architecture and H100 interconnect bandwidth?",
+    "ground_truth": "I don't have enough information in the transcripts to answer that. GPU architectures and H100 interconnects were not mentioned.",
+    "category": "no_answer"
+  },
+  {
+    "question": "What was the name of the restaurant or coffee shop Sam visited before or after the recording?",
+    "ground_truth": "I don't have enough information in the transcripts to answer that. No restaurant or coffee shop is mentioned in the transcript.",
+    "category": "no_answer"
+  },
+  {
+    "question": "What are Sam's thoughts on the upcoming presidential election and political candidates?",
+    "ground_truth": "I don't have enough information in the transcripts to answer that. Elections and political candidates were not discussed.",
+    "category": "no_answer"
+  },
+  {
+    "question": "What pricing model or subscription cost did Lex and Sam announce for their API services?",
+    "ground_truth": "I don't have enough information in the transcripts to answer that. No pricing models or API costs were discussed.",
+    "category": "no_answer"
+  },
+  {
+    "question": "What did the speakers say about OpenAI's revenue or valuation numbers?",
+    "ground_truth": "I don't have enough information in the transcripts to answer that. Revenue and valuation numbers were not mentioned.",
+    "category": "no_answer"
+  },
+  {
+    "question": "What is Sam's opinion on Mars colonization and SpaceX rocket launches?",
+    "ground_truth": "I don't have enough information in the transcripts to answer that. Mars colonization and SpaceX were not mentioned in this transcript.",
+    "category": "no_answer"
+  },
+  {
+    "question": "What does Sam think about 'the future'?",
+    "ground_truth": "In the context of this conversation, the future is discussed in terms of artificial intelligence, humanity, superintelligence, and the need for scalable automated alignment and rigorous safety evaluations.",
+    "category": "ambiguous"
+  },
+  {
+    "question": "Is it enough?",
+    "ground_truth": "If referring to RLHF (reinforcement learning from human feedback), Sam states that it is a great first step, but not a silver bullet or enough on its own to solve alignment as models become superintelligent.",
+    "category": "ambiguous"
+  },
+  {
+    "question": "What is the danger?",
+    "ground_truth": "The danger highlighted by Sam is moving too fast without rigorous safety evaluations, which could lead to deploying autonomous systems that pursue unintended subgoals with severe consequences.",
+    "category": "ambiguous"
+  },
+  {
+    "question": "What did he say about speed and moving fast?",
+    "ground_truth": "Sam warned about the danger of moving too fast without rigorous safety evaluations when deploying autonomous systems.",
+    "category": "ambiguous"
+  },
+  {
+    "question": "What technique was called a silver bullet?",
+    "ground_truth": "No technique was called a silver bullet; rather, Sam specifically stated that RLHF is 'not a silver bullet' for solving alignment.",
+    "category": "factual_core"
+  },
+  {
+    "question": "What phrase did Sam use regarding why RLHF is insufficient alone for superintelligence?",
+    "ground_truth": "Sam described RLHF as 'a great first step, but it's not a silver bullet', noting the necessity of scalable automated alignment techniques as models become superintelligent.",
+    "category": "factual_quote"
+  },
+  {
+    "question": "What specific phrase does Lex use to open the conversation with Sam?",
+    "ground_truth": "Lex opens with: 'Welcome to the podcast. Today I'm speaking with Sam about artificial intelligence and the future of humanity.'",
+    "category": "dialogue_flow"
+  },
+  {
+    "question": "Why could deploying autonomous systems lead to severe consequences?",
+    "ground_truth": "Deploying systems without rigorous safety evaluations could cause them to pursue unintended subgoals, leading to severe consequences.",
+    "category": "safety_and_risk"
+  },
+  {
+    "question": "What is required before deploying autonomous systems according to Sam?",
+    "ground_truth": "Rigorous safety evaluations are required to prevent systems from pursuing unintended subgoals.",
+    "category": "safety_and_risk"
+  },
+  {
+    "question": "What does the transcript suggest will happen as models become superintelligent?",
+    "ground_truth": "As models become superintelligent, scalable automated alignment techniques and rigorous safety evaluations will be required to ensure they understand human intent and do not pursue unintended subgoals.",
+    "category": "technical_detail"
+  },
+  {
+    "question": "Did Lex express skepticism about RLHF solving alignment?",
+    "ground_truth": "Lex questioned whether RLHF (reinforcement learning from human feedback) is enough to solve alignment, prompting Sam's explanation of its limitations.",
+    "category": "speaker_identification"
+  },
+  {
+    "question": "What does Sam identify as the primary goal of AI alignment?",
+    "ground_truth": "Sam identifies ensuring that models understand human intent as the core objective of AI alignment and safety.",
+    "category": "factual_core"
+  },
+  {
+    "question": "What programming language or codebase did Sam recommend using for safety evaluations in the transcript?",
+    "ground_truth": "I don't have enough information in the transcripts to answer that. Specific programming languages or codebases were not discussed.",
+    "category": "no_answer"
   }
 ]
