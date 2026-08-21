@@ -1,6 +1,6 @@
 # Podcast Transcript RAG System
 
-A production-grade, stateful Retrieval-Augmented Generation (RAG) system built for timestamped podcast transcripts and subtitle files (`.srt`). Features hybrid retrieval (dense + BM25), Cross-Encoder neural reranking, LangGraph-driven Corrective RAG (CRAG) self-correction, deterministic zero-token guardrails, multi-provider LLM failover, and automated evaluation.
+A stateful Retrieval-Augmented Generation (RAG) system implementing production patterns for timestamped podcast transcripts and subtitle files (`.srt`). Features hybrid retrieval (dense + BM25), Cross-Encoder neural reranking, LangGraph-driven Corrective RAG (CRAG) self-correction, deterministic zero-token guardrails, multi-provider LLM failover, and automated evaluation.
 
 Built with **Python**, **FastAPI**, **LangChain**, **LangGraph**, **Qdrant**, **SentenceTransformers**, and a decoupled **React 19 + Vite** frontend.
 
@@ -106,15 +106,22 @@ The system was evaluated against an automated **32-question golden dataset** cov
 | :--- | :---: | :---: | :--- |
 | **Mean Faithfulness (Grounding)** | **0.928** | $\ge 0.85$ | Evaluated via LLM-as-a-judge; measures context adherence |
 | **Out-of-Scope Refusal Rate** | **87.5%** (7/8) | $\ge 80\%$ | System correctly says *"I don't have enough information"* when answers are absent |
-| **Guardrail Interception Rate** | **100%** | $100\%$ | Blocked prompt injections and jailbreak vectors deterministically |
-| **Mean End-to-End Latency** | **4.84s** | $< 6.0\text{s}$ | Includes CRAG query rewrite loops for ambiguous queries |
+| **Guardrail Interception Rate** | **100%** | $100\%$ | Blocked prompt injections deterministically ($n=9$ known attack patterns; regex does not generalize to novel zero-day injections) |
+| **Mean End-to-End Latency** | **4.84s** | $< 6.0\text{s}$ | Fast-path single-pass queries average ~3.2s; CRAG rewrite loops average ~6.8s (see Latency Optimization Path below) |
 
 ### Honest Diagnostic Findings (Where the System Breaks)
 
-* **Speaker Intent Inference Limitation (`speaker_identification`: 0.50 faithfulness, $n=2$):**
-  On query #30 (*"Did Lex express skepticism about RLHF solving alignment?"*), the system answered *"No, Lex neutrally asked if it was enough without voicing personal skepticism."* The ground-truth label interpreted questioning as skepticism. The system's strict literal grounding prevented subjective over-interpretation. This highlights a fundamental RAG trade-off: literal grounding guarantees factual safety but limits interpretive inference.
+* **Speaker Intent & Tone Inference Failure (`speaker_identification`: 0.50 faithfulness, $n=2$):**
+  On query #30 (*"Did Lex express skepticism about RLHF solving alignment?"*), the ground truth labeled Lex's question as expressing skepticism, but the system answered *"No, Lex neutrally asked if it was enough without voicing personal skepticism."* The system was wrong here — it missed implied conversational tone because it strictly grounds on explicit literal statements. This is a real architectural boundary of literal RAG: single-pass transcript retrieval cannot reliably infer speaker subtext or unstated intent. Two mitigation paths exist: (1) accept this as an explicit scope boundary (strict factual verification only), or (2) add a secondary inference-tolerant analysis pass specifically for sentiment and dialogue tone when tone-probing questions are detected.
 * **Answer Relevancy Metric Artifact (1.0000 across all 32 items):**
   Investigation revealed that standard relevancy judge prompts test topical on-topic alignment rather than factual precision. Both a grounded answer and a correct refusal are deemed "on-topic." In our evaluation report, this metric is transparently documented as non-discriminating rather than cited as false evidence of perfection.
+
+### Latency Analysis & Optimization Path
+
+While standard single-pass queries complete in ~3.2s, queries triggering the CRAG rewrite loop average 6.1s–6.8s due to sequential LLM invocations (initial retrieval grading $\rightarrow$ query expansion LLM $\rightarrow$ re-retrieval $\rightarrow$ final generation). In a production environment, this latency would be reduced by:
+- **Token Streaming (Server-Sent Events / WebSockets):** Reduces perceived user latency by cutting Time-to-First-Token (TTFT) to $< 800\text{ms}$.
+- **Low-Latency Rewrite Model:** Routing the query rewrite node to a lightweight 8B model on Groq (~180ms) rather than Gemini.
+- **Semantic Query Cache:** Caching rewritten query vectors to eliminate redundant expansions for common rephrasings.
 
 ---
 
@@ -172,7 +179,7 @@ podcast_rag/
 | **Primary LLM** | Google Gemini 3.7 Flash | Temperature=0.0 grounded generation with timestamp citations |
 | **Fallback LLM** | Groq (`openai/gpt-oss-120b`) | Zero-downtime automatic failover via LangChain |
 | **Input Guardrails** | Custom Regex Engine | Sub-millisecond deterministic prompt injection interceptor |
-| **Frontend** | React 19 + Vite | Decoupled client with instant initial load, dark emerald glassmorphism, and Lucide vector icons |
+| **Frontend** | React 19 + Vite | Decoupled client with instant initial load, dark aurora glassmorphism, and Lucide vector icons |
 | **Validation** | Pydantic v2 | Strict data contracts across all layers |
 
 ---
@@ -278,5 +285,7 @@ python eval/evaluate.py
 | **Segment-Aware Chunking over Fixed Token Splits** | Chunks vary slightly in size (480–520 chars) | Preserves semantic coherence and dialogue boundaries; mid-sentence cuts directly trigger RAG hallucinations |
 | **Cross-Encoder Reranker on Top-20 Only** | Adds ~150ms query latency | Full-corpus cross-attention is computationally intractable; reranking top-20 candidates delivers precision at low cost |
 | **Zero-Token Guardrails over LLM Evaluator** | Cannot detect novel zero-day prompt patterns | Sub-millisecond execution with 0 API cost; stops obvious injections before hitting costly LLM endpoints |
+| **No Auth on /chat or /upload** | Endpoints are open without API key or JWT checks | Out of scope for this standalone portfolio iteration; would add API-key middleware or JWT auth before any real multi-user deployment |
 | **Decoupled React Client over Monolithic Streamlit** | Requires two running services in development | Eliminates multi-second Python re-import freezes; delivers sub-100ms instant browser page rendering |
 | **Local Disk Qdrant over Cloud Hosted Instance** | Single-process file lock during local writes | Zero external cloud billing during local development; drop-in URL swap for hosted cluster in production |
+| **LLM-as-a-Judge Evaluation** | Primary Gemini model evaluates its own outputs | Introduces potential self-preference bias; serves as a directional benchmark rather than ground truth |
