@@ -37,11 +37,13 @@ class Citation(BaseModel):
 class QueryResponse(BaseModel):
     query: str
     answer: str
+    thread_id: str = "default_session"
     citations: List[Citation] = Field(default_factory=list)
 
 
 class QueryRequest(BaseModel):
     query: str
+    thread_id: Optional[str] = "default_session"
     podcast_name: Optional[str] = None
     episode_id: Optional[Union[int, str]] = None
     top_k: Optional[int] = 20

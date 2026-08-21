@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.rag.engine import RAGEngine
+from app.rag.graph import PodcastRAGGraph
 from app.models.schemas import QueryRequest, IngestRequest
 
 
@@ -14,12 +15,14 @@ from app.models.schemas import QueryRequest, IngestRequest
 async def lifespan(app: FastAPI):
     settings = get_settings()
     executer = ThreadPoolExecutor(max_workers=2)
-    rag = RAGEngine(persist_dir=settings.RAG_PERSIST_DIR)
+    rag_engine = RAGEngine(persist_dir=settings.RAG_PERSIST_DIR)
+    rag_graph = PodcastRAGGraph(engine=rag_engine)
 
-    app.state.rag = rag
+    app.state.rag = rag_engine
+    app.state.graph = rag_graph
     app.state.executer = executer
 
-    print("Podcast RAG Engine initialized successfully.")
+    print("Podcast RAG Engine & LangGraph Conversation Router initialized.")
     yield
 
     print("Shutting down ThreadPoolExecutor...")
@@ -27,13 +30,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Podcast Transcript RAG API",
-    description="Hybrid RAG pipeline combining ChromaDB Dense Search, BM25 Keyword Search, Cross-Encoder Reranking, and Groq LLM Generation.",
-    version="1.0.0",
+    title="Podcast Transcript RAG & LangGraph Agent API",
+    description="Stateful Multi-Turn RAG API with LangGraph Routing, Qdrant Hybrid Search, Cross-Encoder Reranking, and Gemini/Groq Fallback.",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
-# Enable CORS for local development and web frontends
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,7 +49,7 @@ app.add_middleware(
 def health_check():
     return {
         "status": "online",
-        "message": "Podcast RAG Server is running",
+        "message": "Podcast RAG & LangGraph Server is running",
         "docs_url": "/docs",
     }
 
@@ -67,7 +69,7 @@ async def ingest_transcript(request: IngestRequest):
         )
         return {
             "status": "success",
-            "message": f"Successfully ingested {chunks_count} chunks from '{request.podcast_name}'",
+            "message": f"Successfully ingested {chunks_count} chunks from '{request.podcast_name}' into Qdrant",
             "chunks_ingested": chunks_count,
             "podcast_name": request.podcast_name,
             "episode_id": request.episode_id,
@@ -80,25 +82,23 @@ async def ingest_transcript(request: IngestRequest):
 
 @app.post("/chat")
 async def chat_with_podcast(request: QueryRequest):
-    rag: RAGEngine = app.state.rag
+    graph: PodcastRAGGraph = app.state.graph
     loop = asyncio.get_event_loop()
 
-    where_filter = None
-    if request.podcast_name:
-        where_filter = {"podcast_name": request.podcast_name}
+    thread_id = request.thread_id or "default_session"
 
     try:
         answer = await loop.run_in_executor(
             app.state.executer,
-            rag.ask_question,
+            graph.chat,
             request.query,
-            where_filter,
-            request.top_k,
-            request.top_n,
+            thread_id,
+            request.podcast_name,
         )
         return {
             "query": request.query,
             "answer": answer,
+            "thread_id": thread_id,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chat query failed: {str(e)}")
