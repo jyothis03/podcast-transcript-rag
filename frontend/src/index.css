@@ -330,6 +330,12 @@ body {
   transform: translateX(2px);
 }
 
+.active-history-item {
+  background: rgba(217, 70, 239, 0.15) !important;
+  border-color: var(--primary-pink) !important;
+  box-shadow: 0 0 16px rgba(217, 70, 239, 0.2);
+}
+
 .history-item-left {
   display: flex;
   align-items: center;

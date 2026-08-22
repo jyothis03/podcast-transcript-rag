@@ -64,7 +64,8 @@ class RAGEngine:
             gemini_llm = ChatGoogleGenerativeAI(
                 model=self.settings.GEMINI_MODEL_NAME,
                 google_api_key=gemini_key,
-                max_retries=2,
+                max_retries=1,
+                timeout=12,
                 temperature=0.0,
             )
             # If Groq is available, chain it as an automatic fallback!

@@ -146,6 +146,7 @@ class QdrantStore:
         self,
         query: str,
         top_k: int = 20,
+        where_filter: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         sparse_query = list(self.sparse_model.embed([query]))[0]
         sparse_vec = models.SparseVector(
@@ -153,11 +154,23 @@ class QdrantStore:
             values=sparse_query.values.tolist(),
         )
 
+        qdrant_filter = None
+        if where_filter and "podcast_name" in where_filter:
+            qdrant_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="podcast_name",
+                        match=models.MatchValue(value=where_filter["podcast_name"]),
+                    )
+                ]
+            )
+
         results = self.client.query_points(
             collection_name=self.collection_name,
             query=sparse_vec,
             using="bm25",
             limit=top_k,
+            query_filter=qdrant_filter,
             with_payload=True,
         ).points
 
@@ -175,3 +188,23 @@ class QdrantStore:
                 "score": float(p.score),
             })
         return formatted
+
+    def get_podcasts(self) -> List[Dict[str, Any]]:
+        """
+        Returns summary of unique podcasts and their indexed chunk count.
+        """
+        try:
+            results = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=1000,
+                with_payload=True,
+                with_vectors=False,
+            )[0]
+            counts = {}
+            for p in results:
+                payload = p.payload or {}
+                name = payload.get("podcast_name", "Unknown")
+                counts[name] = counts.get(name, 0) + 1
+            return [{"podcast_name": k, "chunk_count": v} for k, v in counts.items()]
+        except Exception:
+            return []

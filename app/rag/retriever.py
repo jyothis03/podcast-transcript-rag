@@ -92,6 +92,7 @@ class HybridRetriever:
         sparse_results = self.qdrant_store.sparse_search(
             query=query,
             top_k=top_k,
+            where_filter=where_filter,
         )
 
         # 3. Fuse dense and sparse candidates using RRF

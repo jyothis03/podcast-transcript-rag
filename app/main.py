@@ -19,14 +19,6 @@ async def lifespan(app: FastAPI):
     rag_engine = RAGEngine(persist_dir=settings.RAG_PERSIST_DIR)
     rag_graph = PodcastRAGGraph(engine=rag_engine)
 
-    # Ingest default transcript on startup if empty
-    try:
-        pts = rag_engine.qdrant_store.client.get_collection(rag_engine.qdrant_store.collection_name).points_count or 0
-    except Exception:
-        pts = 0
-    if pts == 0 and os.path.exists("data/sample_podcast.srt"):
-        rag_engine.ingest_podcast("data/sample_podcast.srt", podcast_name="Lex Fridman Podcast", episode_id=1)
-
     app.state.rag = rag_engine
     app.state.graph = rag_graph
     app.state.executer = executer
@@ -76,6 +68,12 @@ def get_system_status():
         "primary_model": rag.settings.GEMINI_MODEL_NAME,
         "failover_model": rag.settings.GROQ_MODEL_NAME,
     }
+
+
+@app.get("/podcasts")
+def list_indexed_podcasts():
+    rag: RAGEngine = app.state.rag
+    return rag.qdrant_store.get_podcasts()
 
 
 @app.post("/upload")
