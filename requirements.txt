@@ -3,8 +3,6 @@ uvicorn[standard]
 pydantic
 pydantic-settings
 python-dotenv
-chromadb
-rank_bm25
 sentence-transformers
 groq
 qdrant-client
@@ -15,5 +13,4 @@ langchain-groq
 langgraph
 ragas
 datasets
-streamlit
 torchvision
