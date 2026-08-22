@@ -89,10 +89,32 @@ Built with **Python**, **FastAPI**, **LangChain**, **LangGraph**, **Qdrant**, **
 - A state-tracked loop counter caps rewrites at 2 cycles to prevent infinite execution loops.
 
 **4. Why Multi-Provider LLM Orchestration with Fallback?**
-- Chained with LangChain's `.with_fallbacks()`: Google Gemini serves as primary, with automatic zero-downtime failover to Groq (`openai/gpt-oss-120b`) if rate limits (HTTP 429) or service outages (5xx) occur.
+- Chained with LangChain's `.with_fallbacks()`: Google Gemini serves as primary (`gemini-2.5-flash`), with automatic zero-downtime failover to Groq (`openai/gpt-oss-120b`) if rate limits (HTTP 429) or service outages (5xx) occur.
 
 **5. Why Zero-Token Deterministic Guardrails?**
 - Rather than burning LLM tokens and adding 1-2s of round-trip latency to classify inputs, pre-execution regex guardrails catch prompt injections, system prompt leak attempts, and jailbreak signatures in `< 1ms` at zero cost.
+
+---
+
+## User Interface & Interactive Capabilities
+
+The decoupled React 19 single-page application provides a dark obsidian glassmorphic workspace tailored for timestamped transcript exploration, multi-turn dialogue, and instant SRT file indexing.
+
+### 1. Multi-Transcript Library & Hub
+![Podcast Transcript Library Hub](assets/ui_hub_library.png)
+*Figure 1: **Central Podcast Library Hub** — Displays all indexed subtitle transcripts with live chunk counts in Qdrant, a drag-and-drop ingestion zone, and searchable multi-session conversation history in the sidebar.*
+
+---
+
+### 2. Grounded Dialogue Synthesis & Exact Timestamp Citations
+![Grounded Synthesis and Citations](assets/ui_grounded_qa.png)
+*Figure 2: **Factual Grounding & Multi-Turn State** — User queries the core theme (`"what is this podcast about?"`), and the agent synthesizes an accurate summary strictly cited to the transcript (`[at 1.0s]`). The follow-up query (`"who are the speakers?"`) demonstrates conversational memory and real-time retrieval status feedback.*
+
+---
+
+### 3. Strict Out-of-Domain Refusal & Deep Semantic Extraction
+![Out-of-Scope Refusal and Deep Extraction](assets/ui_refusal_and_synthesis.png)
+*Figure 3: **Refusal Boundary & Long-Horizon Synthesis** — Top: When queried on topics absent from the transcript, the agent enforces strict grounding and refuses (*"I don't have enough information in the transcripts to answer that"*). Bottom: When asked about complex economic impacts, the agent accurately extracts multi-speaker arguments with deep timestamp citations (`[at 1501.0s]` $\approx 25\text{m }01\text{s}$).*
 
 ---
 
