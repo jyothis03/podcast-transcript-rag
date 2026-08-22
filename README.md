@@ -114,7 +114,7 @@ The decoupled React 19 single-page application provides a dark obsidian glassmor
 
 ### 3. Strict Out-of-Domain Refusal & Deep Semantic Extraction
 ![Out-of-Scope Refusal and Deep Extraction](assets/ui_refusal_and_synthesis.png)
-*Figure 3: **Refusal Boundary & Long-Horizon Synthesis** — Top: When queried on topics absent from the transcript, the agent enforces strict grounding and refuses (*"I don't have enough information in the transcripts to answer that"*). Bottom: When asked about complex economic impacts, the agent accurately extracts multi-speaker arguments with deep timestamp citations (`[at 1501.0s]` $\approx 25\text{m }01\text{s}$).*
+*Figure 3: **Refusal Boundary & Long-Horizon Synthesis** — Top: When queried on an out-of-scope topic absent from the transcript (`"What does it say about the impact on nature?"`), the agent enforces strict grounding and refuses (*"I don't have enough information in the transcripts to answer that"*). Bottom: When asked about complex economic impacts (`"What does it say about the economic impact?"`), the agent accurately extracts multi-speaker arguments with deep timestamp citations (`[at 1501.0s]`.*
 
 ---
 
